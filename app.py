@@ -12,13 +12,14 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev_key")
 CHAT_DIR = "chats"
 os.makedirs(CHAT_DIR, exist_ok=True)
 
+# ---------------- MODES ----------------
+
 MODES = {
     "default": "You are a helpful assistant.",
     "study": "You explain things clearly and simply like a tutor.",
     "code": "You are an expert programmer.",
-    "debate": "You challenge the user intelligently."
+    "debate": "You challenge the user and argue intelligently."
 }
-
 
 # ---------------- STORAGE ----------------
 
@@ -80,21 +81,27 @@ body {
     overflow-y: auto;
 }
 
-.chatItem {
+button {
+    background: #2563eb;
+    border: none;
+    color: white;
     padding: 10px;
-    margin: 6px 0;
+    border-radius: 8px;
+    cursor: pointer;
+    width: 100%;
+    margin-bottom: 10px;
+}
+
+.mode {
+    padding: 8px;
+    margin: 5px 0;
     background: #1f2937;
-    border-radius: 10px;
-    display: flex;
-    justify-content: space-between;
+    border-radius: 8px;
     cursor: pointer;
 }
 
-.deleteBtn {
-    background: transparent;
-    border: none;
-    color: #ff5555;
-    cursor: pointer;
+.mode:hover {
+    background: #374151;
 }
 
 /* MAIN */
@@ -142,9 +149,8 @@ body {
     background: #111827;
 }
 
-/* 🔥 KEY FIX */
 textarea {
-    flex: 1;              /* takes all available space */
+    flex: 1;
     min-height: 44px;
     max-height: 120px;
     padding: 10px;
@@ -154,23 +160,16 @@ textarea {
     color: white;
     resize: none;
     outline: none;
-    font-size: 14px;
 }
 
-/* 🔥 FIX BUTTON SIZE */
-button {
-    flex-shrink: 0;       /* prevents stretching */
+.sendBtn {
+    flex-shrink: 0;
     padding: 10px 16px;
     border-radius: 10px;
     border: none;
     background: #2563eb;
     color: white;
     cursor: pointer;
-    font-weight: 600;
-}
-
-button:hover {
-    background: #1d4ed8;
 }
 </style>
 </head>
@@ -179,6 +178,13 @@ button:hover {
 
 <div id="sidebar">
     <button onclick="newChat()">+ New Chat</button>
+
+    <h4>Modes</h4>
+    <div class="mode" onclick="setMode('default')">Default</div>
+    <div class="mode" onclick="setMode('study')">Study</div>
+    <div class="mode" onclick="setMode('code')">Code</div>
+    <div class="mode" onclick="setMode('debate')">Debate</div>
+
     <h4>Chats</h4>
     <div id="list"></div>
 </div>
@@ -189,7 +195,7 @@ button:hover {
 
     <div id="inputBar">
         <textarea id="input" placeholder="Message..."></textarea>
-        <button onclick="send()">Send</button>
+        <button class="sendBtn" onclick="send()">Send</button>
     </div>
 </div>
 
@@ -197,6 +203,10 @@ button:hover {
 let chatDiv = document.getElementById("chat");
 let activeChat = null;
 let mode = "default";
+
+function setMode(m){
+    mode = m;
+}
 
 function add(role,text){
     let d=document.createElement("div");
@@ -267,7 +277,7 @@ async function loadChats(){
 
     data.forEach(c=>{
         let wrap=document.createElement("div");
-        wrap.className="chatItem";
+        wrap.className="mode";
 
         let title=document.createElement("div");
         title.innerText=c.title;
@@ -283,12 +293,18 @@ async function loadChats(){
         };
 
         let del=document.createElement("button");
-        del.className="deleteBtn";
         del.innerText="X";
+        del.style.float="right";
+        del.style.background="transparent";
+        del.style.color="red";
 
         del.onclick=async(e)=>{
             e.stopPropagation();
             await fetch("/delete/"+c.id);
+            if(activeChat===c.id){
+                activeChat=null;
+                chatDiv.innerHTML="";
+            }
             loadChats();
         };
 
