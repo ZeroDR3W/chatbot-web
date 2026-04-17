@@ -13,7 +13,10 @@ HTML = """
 <!doctype html>
 <html>
 <head>
-<title>ChatGPT Clone</title>
+<title>Drew-GPT</title>
+
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
 <style>
 body {
     margin:0;
@@ -21,8 +24,39 @@ body {
     background:#0f0f0f;
     color:white;
     display:flex;
-    flex-direction:column;
     height:100vh;
+}
+
+/* Sidebar */
+#sidebar {
+    width:200px;
+    background:#111;
+    padding:10px;
+    border-right:1px solid #222;
+}
+
+#newChat {
+    width:100%;
+    padding:10px;
+    background:#2563eb;
+    border:none;
+    color:white;
+    cursor:pointer;
+}
+
+/* Main */
+#main {
+    flex:1;
+    display:flex;
+    flex-direction:column;
+}
+
+#header {
+    padding:15px;
+    background:#111;
+    text-align:center;
+    font-weight:bold;
+    border-bottom:1px solid #222;
 }
 
 #chat {
@@ -33,7 +67,7 @@ body {
 
 .msg {
     max-width:70%;
-    padding:10px 14px;
+    padding:12px;
     margin:10px 0;
     border-radius:12px;
     white-space:pre-wrap;
@@ -55,18 +89,19 @@ body {
     background:#111;
 }
 
-input {
+textarea {
     flex:1;
     padding:10px;
     border:none;
     border-radius:8px;
     background:#222;
     color:white;
+    resize:none;
 }
 
 button {
     margin-left:10px;
-    padding:10px 14px;
+    padding:10px;
     border:none;
     border-radius:8px;
     background:#2563eb;
@@ -78,11 +113,19 @@ button {
 
 <body>
 
-<div id="chat"></div>
+<div id="sidebar">
+    <button id="newChat" onclick="newChat()">+ New Chat</button>
+</div>
 
-<div id="inputBar">
-    <input id="input" placeholder="Message..." />
-    <button onclick="sendMessage()">Send</button>
+<div id="main">
+    <div id="header">Drew-GPT</div>
+
+    <div id="chat"></div>
+
+    <div id="inputBar">
+        <textarea id="input" rows="1" placeholder="Message..."></textarea>
+        <button onclick="sendMessage()">Send</button>
+    </div>
 </div>
 
 <script>
@@ -91,7 +134,7 @@ let chatDiv = document.getElementById("chat");
 function addMessage(role, text) {
     let div = document.createElement("div");
     div.className = "msg " + role;
-    div.innerText = text;
+    div.innerHTML = marked.parse(text);
     chatDiv.appendChild(div);
     chatDiv.scrollTop = chatDiv.scrollHeight;
     return div;
@@ -99,13 +142,12 @@ function addMessage(role, text) {
 
 async function sendMessage() {
     let input = document.getElementById("input");
-    let text = input.value;
+    let text = input.value.trim();
     if (!text) return;
 
     input.value = "";
 
     addMessage("user", text);
-
     let botDiv = addMessage("assistant", "");
 
     const response = await fetch("/chat", {
@@ -125,9 +167,23 @@ async function sendMessage() {
 
         let chunk = decoder.decode(value);
         fullText += chunk;
-        botDiv.innerText = fullText;
+        botDiv.innerHTML = marked.parse(fullText);
         chatDiv.scrollTop = chatDiv.scrollHeight;
     }
+}
+
+/* ENTER TO SEND */
+document.getElementById("input").addEventListener("keydown", function(e) {
+    if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+    }
+});
+
+/* NEW CHAT */
+async function newChat() {
+    await fetch("/reset", {method: "POST"});
+    chatDiv.innerHTML = "";
 }
 </script>
 
@@ -162,17 +218,23 @@ def chat():
             stream=True,
         )
 
-        full_response = ""
+        full = ""
 
         for chunk in stream:
             token = chunk.choices[0].delta.content or ""
-            full_response += token
+            full += token
             yield token
 
-        messages.append({"role": "assistant", "content": full_response})
+        messages.append({"role": "assistant", "content": full})
         session["messages"] = messages
 
     return Response(generate(), mimetype="text/plain")
+
+
+@app.route("/reset", methods=["POST"])
+def reset():
+    session["messages"] = [SYSTEM_PROMPT]
+    return jsonify({"status": "ok"})
 
 
 if __name__ == "__main__":
