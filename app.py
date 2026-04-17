@@ -9,42 +9,53 @@ app = Flask(__name__)
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev_key")
 
-MODES = {
-    "default": "You are a helpful assistant.",
-    "study": "You are a helpful tutor who explains clearly.",
-    "code": "You are an expert programmer.",
-    "debate": "You argue intelligently with the user."
-}
-
 CHAT_DIR = "chats"
 os.makedirs(CHAT_DIR, exist_ok=True)
 
+# ---------------- MODES ----------------
 
-def get_user():
-    user_id = request.cookies.get("user_id")
-    if not user_id:
-        user_id = str(uuid.uuid4())
-    return user_id
+MODES = {
+    "default": "You are a helpful assistant.",
+    "study": "You explain things clearly and simply like a tutor.",
+    "code": "You are an expert programmer who writes clean code.",
+    "debate": "You challenge the user and argue intelligently."
+}
+
+# ---------------- STORAGE ----------------
+
+def get_user_id():
+    uid = request.cookies.get("user_id")
+    if not uid:
+        uid = str(uuid.uuid4())
+    return uid
 
 
-def file_path(user_id):
-    return os.path.join(CHAT_DIR, f"{user_id}.json")
+def file_path(uid):
+    return os.path.join(CHAT_DIR, f"{uid}.json")
 
 
-def load_data(user_id):
-    path = file_path(user_id)
+def load_user_data(uid):
+    path = file_path(uid)
     if os.path.exists(path):
         with open(path, "r") as f:
             return json.load(f)
     return []
 
 
-def save_data(user_id, data):
-    with open(file_path(user_id), "w") as f:
+def save_user_data(uid, data):
+    with open(file_path(uid), "w") as f:
         json.dump(data, f)
 
 
-# ---------------- UI ----------------
+def find_chat(data, cid):
+    for c in data:
+        if c["id"] == cid:
+            return c
+    return None
+
+
+# ---------------- FRONTEND ----------------
+
 HTML = """
 <!doctype html>
 <html>
@@ -54,45 +65,111 @@ HTML = """
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
 <style>
-body {margin:0; display:flex; height:100vh; font-family:Arial; background:#0f0f0f; color:white;}
+body {
+    margin: 0;
+    display: flex;
+    height: 100vh;
+    font-family: system-ui;
+    background: #0b0f17;
+    color: white;
+}
 
-#sidebar {width:240px; background:#111; padding:10px; overflow-y:auto;}
+#sidebar {
+    width: 260px;
+    background: #111827;
+    padding: 12px;
+    overflow-y: auto;
+}
+
+button {
+    background: #2563eb;
+    border: none;
+    color: white;
+    padding: 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    width: 100%;
+    margin-bottom: 10px;
+}
+
+.mode {
+    padding: 8px;
+    margin: 5px 0;
+    background: #1f2937;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.mode:hover {
+    background: #374151;
+}
 
 .chatItem {
-    padding:8px;
-    background:#222;
-    margin:5px 0;
-    border-radius:6px;
-    cursor:pointer;
-    display:flex;
-    justify-content:space-between;
-    align-items:center;
+    padding: 10px;
+    margin: 6px 0;
+    background: #1f2937;
+    border-radius: 10px;
+    display: flex;
+    justify-content: space-between;
+    cursor: pointer;
 }
 
 .deleteBtn {
-    background:red;
-    border:none;
-    color:white;
-    padding:3px 6px;
-    border-radius:4px;
-    cursor:pointer;
+    background: transparent;
+    border: none;
+    color: red;
+    cursor: pointer;
 }
 
-#main {flex:1; display:flex; flex-direction:column;}
+#main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
 
-#header {padding:15px; background:#111;}
+#header {
+    padding: 12px;
+    background: #111827;
+    font-weight: bold;
+}
 
-#chat {flex:1; padding:20px; overflow-y:auto;}
+#chat {
+    flex: 1;
+    padding: 20px;
+    overflow-y: auto;
+}
 
-.msg {max-width:70%; padding:10px; margin:10px 0; border-radius:10px;}
-.user {background:#2563eb; margin-left:auto;}
-.assistant {background:#2a2a2a;}
+.msg {
+    max-width: 70%;
+    padding: 10px;
+    margin: 10px 0;
+    border-radius: 12px;
+}
 
-#inputBar {display:flex; padding:10px; background:#111;}
+.user {
+    background: #2563eb;
+    margin-left: auto;
+}
 
-textarea {flex:1; padding:10px; background:#222; color:white; border:none;}
+.assistant {
+    background: #1f2937;
+}
 
-button {margin-left:10px; padding:10px;}
+#inputBar {
+    display: flex;
+    padding: 10px;
+    background: #111827;
+}
+
+textarea {
+    flex: 1;
+    padding: 10px;
+    border-radius: 10px;
+    border: none;
+    background: #1f2937;
+    color: white;
+}
+
 </style>
 </head>
 
@@ -100,12 +177,20 @@ button {margin-left:10px; padding:10px;}
 
 <div id="sidebar">
     <button onclick="newChat()">+ New Chat</button>
+
+    <h4>Modes</h4>
+    <div class="mode" onclick="setMode('default')">Default</div>
+    <div class="mode" onclick="setMode('study')">Study</div>
+    <div class="mode" onclick="setMode('code')">Code</div>
+    <div class="mode" onclick="setMode('debate')">Debate</div>
+
     <h4>Chats</h4>
     <div id="list"></div>
 </div>
 
 <div id="main">
     <div id="header">Drew-GPT</div>
+
     <div id="chat"></div>
 
     <div id="inputBar">
@@ -116,6 +201,8 @@ button {margin-left:10px; padding:10px;}
 
 <script>
 let chatDiv = document.getElementById("chat");
+let activeChat = null;
+let currentMode = "default";
 
 function add(role,text){
     let d=document.createElement("div");
@@ -125,10 +212,14 @@ function add(role,text){
     chatDiv.scrollTop=chatDiv.scrollHeight;
 }
 
+function setMode(m){
+    currentMode = m;
+}
+
 async function send(){
     let input=document.getElementById("input");
     let text=input.value.trim();
-    if(!text)return;
+    if(!text) return;
 
     input.value="";
     add("user",text);
@@ -141,7 +232,11 @@ async function send(){
     const res=await fetch("/chat",{
         method:"POST",
         headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({message:text})
+        body:JSON.stringify({
+            message:text,
+            chat_id:activeChat,
+            mode:currentMode
+        })
     });
 
     const reader=res.body.getReader();
@@ -150,7 +245,7 @@ async function send(){
 
     while(true){
         let {value,done}=await reader.read();
-        if(done)break;
+        if(done) break;
         full+=decoder.decode(value);
         bot.innerHTML=marked.parse(full);
     }
@@ -166,7 +261,10 @@ document.getElementById("input").addEventListener("keydown",e=>{
 });
 
 async function newChat(){
-    await fetch("/new_chat");
+    let res = await fetch("/new_chat");
+    let data = await res.json();
+
+    activeChat = data.id;
     chatDiv.innerHTML="";
     loadChats();
 }
@@ -178,16 +276,19 @@ async function loadChats(){
     let list=document.getElementById("list");
     list.innerHTML="";
 
-    data.forEach(chat=>{
+    data.forEach(c=>{
         let wrap=document.createElement("div");
         wrap.className="chatItem";
 
         let title=document.createElement("div");
-        title.innerText=chat.title;
+        title.innerText=c.title;
 
         title.onclick=async()=>{
-            let r=await fetch("/load/"+chat.id);
+            activeChat=c.id;
+
+            let r=await fetch("/load/"+c.id);
             let msgs=await r.json();
+
             chatDiv.innerHTML="";
             msgs.forEach(m=>add(m.role,m.content));
         };
@@ -198,7 +299,13 @@ async function loadChats(){
 
         del.onclick=async(e)=>{
             e.stopPropagation();
-            await fetch("/delete/"+chat.id);
+            await fetch("/delete/"+c.id);
+
+            if(activeChat===c.id){
+                activeChat=null;
+                chatDiv.innerHTML="";
+            }
+
             loadChats();
         };
 
@@ -228,82 +335,99 @@ def index():
 
 @app.route("/chat", methods=["POST"])
 def chat():
-    user_id = get_user()
+    uid = get_user_id()
     data = request.json
+
     msg = data["message"]
+    cid = data.get("chat_id")
+    mode = data.get("mode", "default")
 
-    chats = load_data(user_id)
+    chats = load_user_data(uid)
 
-    if not chats or chats[-1].get("done"):
+    if not chats:
         chats.append({
             "id": str(uuid.uuid4()),
             "title": msg[:20],
-            "messages": [],
-            "done": False
+            "messages": []
         })
 
-    chat = chats[-1]
-    chat["messages"].append({"role":"user","content":msg})
+    chat = find_chat(chats, cid) if cid else chats[-1]
+
+    chat["messages"].append({"role": "user", "content": msg})
+
+    system = {
+        "role": "system",
+        "content": MODES.get(mode, MODES["default"])
+    }
+
+    convo = [system] + chat["messages"]
 
     def stream():
         res = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
-            messages=chat["messages"],
+            messages=convo,
             stream=True
         )
 
-        full=""
+        full = ""
 
         for c in res:
-            token=c.choices[0].delta.content or ""
-            full+=token
+            token = c.choices[0].delta.content or ""
+            full += token
             yield token
 
-        chat["messages"].append({"role":"assistant","content":full})
-        save_data(user_id,chats)
+        chat["messages"].append({"role": "assistant", "content": full})
+        save_user_data(uid, chats)
 
     return Response(stream(), mimetype="text/plain")
 
 
 @app.route("/chats")
 def chats():
-    user_id = get_user()
-    data = load_data(user_id)
+    uid = get_user_id()
+    data = load_user_data(uid)
 
     return jsonify([
-        {"id":c["id"], "title":c["title"]}
+        {"id": c["id"], "title": c["title"]}
         for c in data
     ])
 
 
 @app.route("/load/<cid>")
-def load(cid):
-    user_id = get_user()
-    data = load_data(user_id)
+def load_chat(cid):
+    uid = get_user_id()
+    data = load_user_data(uid)
 
-    for c in data:
-        if c["id"] == cid:
-            return jsonify(c["messages"])
-
-    return jsonify([])
+    chat = find_chat(data, cid)
+    return jsonify(chat["messages"] if chat else [])
 
 
 @app.route("/delete/<cid>")
 def delete(cid):
-    user_id = get_user()
-    data = load_data(user_id)
+    uid = get_user_id()
+    data = load_user_data(uid)
 
     data = [c for c in data if c["id"] != cid]
+    save_user_data(uid, data)
 
-    save_data(user_id, data)
     return "ok"
 
 
 @app.route("/new_chat")
 def new_chat():
-    user_id = get_user()
-    save_data(user_id, [])
-    return "ok"
+    uid = get_user_id()
+    data = load_user_data(uid)
+
+    new = {
+        "id": str(uuid.uuid4()),
+        "title": "New chat",
+        "messages": []
+    }
+
+    data.append(new)
+    save_user_data(uid, data)
+
+    return jsonify(new)
 
 
 if __name__ == "__main__":
