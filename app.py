@@ -1,152 +1,98 @@
 import os
-from flask import Flask, request, Response, render_template_string, session, jsonify
+import json
+import uuid
+from flask import Flask, request, Response, render_template_string, jsonify, make_response
 from groq import Groq
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev_key")
 
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev_key")
 
 MODES = {
     "default": "You are a helpful assistant.",
-    "study": "You are a helpful tutor who explains things clearly and simply.",
-    "code": "You are an expert programmer who writes clean code and explains it.",
-    "debate": "You challenge the user and argue your position intelligently.",
+    "study": "You are a helpful tutor who explains clearly.",
+    "code": "You are an expert programmer.",
+    "debate": "You argue intelligently with the user."
 }
 
+CHAT_DIR = "chats"
+os.makedirs(CHAT_DIR, exist_ok=True)
+
+
+def get_user():
+    user_id = request.cookies.get("user_id")
+    if not user_id:
+        user_id = str(uuid.uuid4())
+    return user_id
+
+
+def file_path(user_id):
+    return os.path.join(CHAT_DIR, f"{user_id}.json")
+
+
+def load_data(user_id):
+    path = file_path(user_id)
+    if os.path.exists(path):
+        with open(path, "r") as f:
+            return json.load(f)
+    return []
+
+
+def save_data(user_id, data):
+    with open(file_path(user_id), "w") as f:
+        json.dump(data, f)
+
+
+# ---------------- UI ----------------
 HTML = """
 <!doctype html>
 <html>
 <head>
 <title>Drew-GPT</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
 <style>
-body {
-    margin: 0;
-    font-family: Arial;
-    background: #0f0f0f;
-    color: white;
-    display: flex;
-    height: 100vh;
+body {margin:0; display:flex; height:100vh; font-family:Arial; background:#0f0f0f; color:white;}
+
+#sidebar {width:240px; background:#111; padding:10px; overflow-y:auto;}
+
+.chatItem {
+    padding:8px;
+    background:#222;
+    margin:5px 0;
+    border-radius:6px;
+    cursor:pointer;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
 }
 
-/* SIDEBAR */
-#sidebar {
-    width: 220px;
-    background: #111;
-    padding: 10px;
-    border-right: 1px solid #222;
+.deleteBtn {
+    background:red;
+    border:none;
+    color:white;
+    padding:3px 6px;
+    border-radius:4px;
+    cursor:pointer;
 }
 
-#sidebar button {
-    width: 100%;
-    padding: 10px;
-    margin-bottom: 10px;
-    background: #2563eb;
-    border: none;
-    color: white;
-    cursor: pointer;
-}
+#main {flex:1; display:flex; flex-direction:column;}
 
-/* MAIN */
-#main {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-}
+#header {padding:15px; background:#111;}
 
-#header {
-    padding: 15px;
-    background: #111;
-    border-bottom: 1px solid #222;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
+#chat {flex:1; padding:20px; overflow-y:auto;}
 
-/* CHAT */
-#chat {
-    flex: 1;
-    overflow-y: auto;
-    padding: 20px;
-}
+.msg {max-width:70%; padding:10px; margin:10px 0; border-radius:10px;}
+.user {background:#2563eb; margin-left:auto;}
+.assistant {background:#2a2a2a;}
 
-.msg {
-    max-width: 70%;
-    padding: 10px 14px;
-    margin: 10px 0;
-    border-radius: 12px;
-    white-space: pre-wrap;
-}
+#inputBar {display:flex; padding:10px; background:#111;}
 
-.user {
-    background: #2563eb;
-    margin-left: auto;
-}
+textarea {flex:1; padding:10px; background:#222; color:white; border:none;}
 
-.assistant {
-    background: #2a2a2a;
-    margin-right: auto;
-}
-
-/* INPUT */
-#inputBar {
-    display: flex;
-    padding: 10px;
-    background: #111;
-}
-
-textarea {
-    flex: 1;
-    padding: 10px;
-    border: none;
-    border-radius: 8px;
-    background: #222;
-    color: white;
-    resize: none;
-}
-
-button {
-    margin-left: 10px;
-    padding: 10px 14px;
-    border: none;
-    border-radius: 8px;
-    background: #2563eb;
-    color: white;
-    cursor: pointer;
-}
-
-/* MODE BUTTONS */
-.mode {
-    display: block;
-    padding: 8px;
-    margin: 5px 0;
-    background: #222;
-    cursor: pointer;
-    border-radius: 6px;
-}
-
-/* MOBILE */
-@media (max-width: 768px) {
-    #sidebar {
-        position: absolute;
-        left: -240px;
-        height: 100%;
-        transition: 0.3s;
-        z-index: 1000;
-    }
-
-    #sidebar.open {
-        left: 0;
-    }
-
-    .msg {
-        max-width: 90%;
-    }
-}
+button {margin-left:10px; padding:10px;}
 </style>
 </head>
 
@@ -154,127 +100,112 @@ button {
 
 <div id="sidebar">
     <button onclick="newChat()">+ New Chat</button>
-
-    <h4>Modes</h4>
-    <div class="mode" onclick="setMode('default')">Default</div>
-    <div class="mode" onclick="setMode('study')">Study</div>
-    <div class="mode" onclick="setMode('code')">Coding</div>
-    <div class="mode" onclick="setMode('debate')">Debate</div>
-
-    <h4>Saved Chats</h4>
-    <div id="savedChats"></div>
+    <h4>Chats</h4>
+    <div id="list"></div>
 </div>
 
 <div id="main">
-
-    <div id="header">
-        <span onclick="toggleMenu()" style="cursor:pointer;">☰</span>
-        <span>Drew-GPT</span>
-    </div>
-
+    <div id="header">Drew-GPT</div>
     <div id="chat"></div>
 
     <div id="inputBar">
-        <textarea id="input" rows="1" placeholder="Message..."></textarea>
-        <button onclick="sendMessage()">Send</button>
+        <textarea id="input"></textarea>
+        <button onclick="send()">Send</button>
     </div>
-
 </div>
 
 <script>
 let chatDiv = document.getElementById("chat");
-let currentMode = "default";
 
-function addMessage(role, text) {
-    let div = document.createElement("div");
-    div.className = "msg " + role;
-    div.innerHTML = marked.parse(text);
-    chatDiv.appendChild(div);
-    chatDiv.scrollTop = chatDiv.scrollHeight;
-    return div;
+function add(role,text){
+    let d=document.createElement("div");
+    d.className="msg "+role;
+    d.innerHTML=marked.parse(text);
+    chatDiv.appendChild(d);
+    chatDiv.scrollTop=chatDiv.scrollHeight;
 }
 
-async function sendMessage() {
-    let input = document.getElementById("input");
-    let text = input.value.trim();
-    if (!text) return;
+async function send(){
+    let input=document.getElementById("input");
+    let text=input.value.trim();
+    if(!text)return;
 
-    input.value = "";
+    input.value="";
+    add("user",text);
 
-    addMessage("user", text);
+    let bot=document.createElement("div");
+    bot.className="msg assistant";
+    bot.innerText="typing...";
+    chatDiv.appendChild(bot);
 
-    let botDiv = addMessage("assistant", "Drew-GPT is typing...");
-
-    const response = await fetch("/chat", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({message: text, mode: currentMode})
+    const res=await fetch("/chat",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({message:text})
     });
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
+    const reader=res.body.getReader();
+    const decoder=new TextDecoder();
+    let full="";
 
-    let full = "";
-
-    while (true) {
-        const {value, done} = await reader.read();
-        if (done) break;
-
-        full += decoder.decode(value);
-        botDiv.innerHTML = marked.parse(full);
-        chatDiv.scrollTop = chatDiv.scrollHeight;
+    while(true){
+        let {value,done}=await reader.read();
+        if(done)break;
+        full+=decoder.decode(value);
+        bot.innerHTML=marked.parse(full);
     }
+
+    loadChats();
 }
 
-/* ENTER TO SEND */
-document.getElementById("input").addEventListener("keydown", function(e){
-    if(e.key === "Enter" && !e.shiftKey){
+document.getElementById("input").addEventListener("keydown",e=>{
+    if(e.key==="Enter"&&!e.shiftKey){
         e.preventDefault();
-        sendMessage();
+        send();
     }
 });
 
-function setMode(mode){
-    currentMode = mode;
-    alert("Mode: " + mode);
-}
-
-function toggleMenu(){
-    document.getElementById("sidebar").classList.toggle("open");
-}
-
 async function newChat(){
-    await fetch("/reset", {method:"POST"});
-    chatDiv.innerHTML = "";
-}
-
-async function saveChat(){
-    await fetch("/save", {method:"POST"});
+    await fetch("/new_chat");
+    chatDiv.innerHTML="";
     loadChats();
 }
 
 async function loadChats(){
-    let res = await fetch("/chats");
-    let chats = await res.json();
+    let res=await fetch("/chats");
+    let data=await res.json();
 
-    let div = document.getElementById("savedChats");
-    div.innerHTML = "";
+    let list=document.getElementById("list");
+    list.innerHTML="";
 
-    chats.forEach((c,i)=>{
-        let el = document.createElement("div");
-        el.className = "mode";
-        el.innerText = "Chat " + (i+1);
-        el.onclick = ()=>loadChat(i);
-        div.appendChild(el);
+    data.forEach(chat=>{
+        let wrap=document.createElement("div");
+        wrap.className="chatItem";
+
+        let title=document.createElement("div");
+        title.innerText=chat.title;
+
+        title.onclick=async()=>{
+            let r=await fetch("/load/"+chat.id);
+            let msgs=await r.json();
+            chatDiv.innerHTML="";
+            msgs.forEach(m=>add(m.role,m.content));
+        };
+
+        let del=document.createElement("button");
+        del.className="deleteBtn";
+        del.innerText="X";
+
+        del.onclick=async(e)=>{
+            e.stopPropagation();
+            await fetch("/delete/"+chat.id);
+            loadChats();
+        };
+
+        wrap.appendChild(title);
+        wrap.appendChild(del);
+        list.appendChild(wrap);
     });
-}
-
-async function loadChat(i){
-    let res = await fetch("/load/"+i);
-    let chat = await res.json();
-
-    chatDiv.innerHTML = "";
-    chat.forEach(m => addMessage(m.role, m.content));
 }
 
 loadChats();
@@ -284,71 +215,96 @@ loadChats();
 </html>
 """
 
+
+# ---------------- BACKEND ----------------
+
 @app.route("/")
 def index():
-    if "messages" not in session:
-        session["messages"] = []
-    if "saved" not in session:
-        session["saved"] = []
-    return render_template_string(HTML)
+    resp = make_response(render_template_string(HTML))
+    if not request.cookies.get("user_id"):
+        resp.set_cookie("user_id", str(uuid.uuid4()))
+    return resp
+
 
 @app.route("/chat", methods=["POST"])
 def chat():
+    user_id = get_user()
     data = request.json
-    user_msg = data["message"]
-    mode = data["mode"]
+    msg = data["message"]
 
-    if "messages" not in session:
-        session["messages"] = []
+    chats = load_data(user_id)
 
-    if "saved" not in session:
-        session["saved"] = []
+    if not chats or chats[-1].get("done"):
+        chats.append({
+            "id": str(uuid.uuid4()),
+            "title": msg[:20],
+            "messages": [],
+            "done": False
+        })
 
-    messages = session["messages"]
+    chat = chats[-1]
+    chat["messages"].append({"role":"user","content":msg})
 
-    system = {"role": "system", "content": MODES.get(mode, MODES["default"])}
-    convo = [system] + messages + [{"role": "user", "content": user_msg}]
-
-    def generate():
-        stream = client.chat.completions.create(
+    def stream():
+        res = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
-            messages=convo,
+            messages=chat["messages"],
             stream=True
         )
 
-        full = ""
+        full=""
 
-        for chunk in stream:
-            token = chunk.choices[0].delta.content or ""
-            full += token
+        for c in res:
+            token=c.choices[0].delta.content or ""
+            full+=token
             yield token
 
-        messages.append({"role": "user", "content": user_msg})
-        messages.append({"role": "assistant", "content": full})
-        session["messages"] = messages
+        chat["messages"].append({"role":"assistant","content":full})
+        save_data(user_id,chats)
 
-    return Response(generate(), mimetype="text/plain")
+    return Response(stream(), mimetype="text/plain")
 
-@app.route("/reset", methods=["POST"])
-def reset():
-    session["messages"] = []
-    return "ok"
-
-@app.route("/save", methods=["POST"])
-def save():
-    if "saved" not in session:
-        session["saved"] = []
-    session["saved"].append(session.get("messages", []))
-    return "ok"
 
 @app.route("/chats")
 def chats():
-    return jsonify(session.get("saved", []))
+    user_id = get_user()
+    data = load_data(user_id)
 
-@app.route("/load/<int:i>")
-def load(i):
-    session["messages"] = session["saved"][i]
-    return jsonify(session["messages"])
+    return jsonify([
+        {"id":c["id"], "title":c["title"]}
+        for c in data
+    ])
+
+
+@app.route("/load/<cid>")
+def load(cid):
+    user_id = get_user()
+    data = load_data(user_id)
+
+    for c in data:
+        if c["id"] == cid:
+            return jsonify(c["messages"])
+
+    return jsonify([])
+
+
+@app.route("/delete/<cid>")
+def delete(cid):
+    user_id = get_user()
+    data = load_data(user_id)
+
+    data = [c for c in data if c["id"] != cid]
+
+    save_data(user_id, data)
+    return "ok"
+
+
+@app.route("/new_chat")
+def new_chat():
+    user_id = get_user()
+    save_data(user_id, [])
+    return "ok"
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
