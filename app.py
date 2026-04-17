@@ -12,49 +12,47 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev_key")
 CHAT_DIR = "chats"
 os.makedirs(CHAT_DIR, exist_ok=True)
 
-# ---------------- MODES ----------------
-
 MODES = {
     "default": "You are a helpful assistant.",
     "study": "You explain things clearly and simply like a tutor.",
-    "code": "You are an expert programmer who writes clean code.",
-    "debate": "You challenge the user and argue intelligently."
+    "code": "You are an expert programmer.",
+    "debate": "You challenge the user intelligently."
 }
+
 
 # ---------------- STORAGE ----------------
 
-def get_user_id():
-    uid = request.cookies.get("user_id")
-    if not uid:
-        uid = str(uuid.uuid4())
-    return uid
+def uid():
+    u = request.cookies.get("user_id")
+    if not u:
+        u = str(uuid.uuid4())
+    return u
 
 
-def file_path(uid):
-    return os.path.join(CHAT_DIR, f"{uid}.json")
+def path(u):
+    return os.path.join(CHAT_DIR, f"{u}.json")
 
 
-def load_user_data(uid):
-    path = file_path(uid)
-    if os.path.exists(path):
-        with open(path, "r") as f:
+def load(u):
+    if os.path.exists(path(u)):
+        with open(path(u), "r") as f:
             return json.load(f)
     return []
 
 
-def save_user_data(uid, data):
-    with open(file_path(uid), "w") as f:
+def save(u, data):
+    with open(path(u), "w") as f:
         json.dump(data, f)
 
 
-def find_chat(data, cid):
+def find(data, cid):
     for c in data:
         if c["id"] == cid:
             return c
     return None
 
 
-# ---------------- FRONTEND ----------------
+# ---------------- UI ----------------
 
 HTML = """
 <!doctype html>
@@ -74,34 +72,12 @@ body {
     color: white;
 }
 
+/* SIDEBAR */
 #sidebar {
     width: 260px;
     background: #111827;
     padding: 12px;
     overflow-y: auto;
-}
-
-button {
-    background: #2563eb;
-    border: none;
-    color: white;
-    padding: 10px;
-    border-radius: 8px;
-    cursor: pointer;
-    width: 100%;
-    margin-bottom: 10px;
-}
-
-.mode {
-    padding: 8px;
-    margin: 5px 0;
-    background: #1f2937;
-    border-radius: 8px;
-    cursor: pointer;
-}
-
-.mode:hover {
-    background: #374151;
 }
 
 .chatItem {
@@ -117,10 +93,11 @@ button {
 .deleteBtn {
     background: transparent;
     border: none;
-    color: red;
+    color: #ff5555;
     cursor: pointer;
 }
 
+/* MAIN */
 #main {
     flex: 1;
     display: flex;
@@ -139,6 +116,7 @@ button {
     overflow-y: auto;
 }
 
+/* MESSAGES */
 .msg {
     max-width: 70%;
     padding: 10px;
@@ -155,21 +133,45 @@ button {
     background: #1f2937;
 }
 
+/* INPUT BAR FIXED */
 #inputBar {
     display: flex;
+    align-items: center;
+    gap: 10px;
     padding: 10px;
     background: #111827;
 }
 
+/* 🔥 KEY FIX */
 textarea {
-    flex: 1;
+    flex: 1;              /* takes all available space */
+    min-height: 44px;
+    max-height: 120px;
     padding: 10px;
     border-radius: 10px;
     border: none;
     background: #1f2937;
     color: white;
+    resize: none;
+    outline: none;
+    font-size: 14px;
 }
 
+/* 🔥 FIX BUTTON SIZE */
+button {
+    flex-shrink: 0;       /* prevents stretching */
+    padding: 10px 16px;
+    border-radius: 10px;
+    border: none;
+    background: #2563eb;
+    color: white;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+button:hover {
+    background: #1d4ed8;
+}
 </style>
 </head>
 
@@ -177,24 +179,16 @@ textarea {
 
 <div id="sidebar">
     <button onclick="newChat()">+ New Chat</button>
-
-    <h4>Modes</h4>
-    <div class="mode" onclick="setMode('default')">Default</div>
-    <div class="mode" onclick="setMode('study')">Study</div>
-    <div class="mode" onclick="setMode('code')">Code</div>
-    <div class="mode" onclick="setMode('debate')">Debate</div>
-
     <h4>Chats</h4>
     <div id="list"></div>
 </div>
 
 <div id="main">
     <div id="header">Drew-GPT</div>
-
     <div id="chat"></div>
 
     <div id="inputBar">
-        <textarea id="input"></textarea>
+        <textarea id="input" placeholder="Message..."></textarea>
         <button onclick="send()">Send</button>
     </div>
 </div>
@@ -202,7 +196,7 @@ textarea {
 <script>
 let chatDiv = document.getElementById("chat");
 let activeChat = null;
-let currentMode = "default";
+let mode = "default";
 
 function add(role,text){
     let d=document.createElement("div");
@@ -210,10 +204,6 @@ function add(role,text){
     d.innerHTML=marked.parse(text);
     chatDiv.appendChild(d);
     chatDiv.scrollTop=chatDiv.scrollHeight;
-}
-
-function setMode(m){
-    currentMode = m;
 }
 
 async function send(){
@@ -235,7 +225,7 @@ async function send(){
         body:JSON.stringify({
             message:text,
             chat_id:activeChat,
-            mode:currentMode
+            mode:mode
         })
     });
 
@@ -261,10 +251,9 @@ document.getElementById("input").addEventListener("keydown",e=>{
 });
 
 async function newChat(){
-    let res = await fetch("/new_chat");
-    let data = await res.json();
-
-    activeChat = data.id;
+    let res=await fetch("/new_chat");
+    let data=await res.json();
+    activeChat=data.id;
     chatDiv.innerHTML="";
     loadChats();
 }
@@ -300,12 +289,6 @@ async function loadChats(){
         del.onclick=async(e)=>{
             e.stopPropagation();
             await fetch("/delete/"+c.id);
-
-            if(activeChat===c.id){
-                activeChat=null;
-                chatDiv.innerHTML="";
-            }
-
             loadChats();
         };
 
@@ -335,14 +318,14 @@ def index():
 
 @app.route("/chat", methods=["POST"])
 def chat():
-    uid = get_user_id()
+    u = uid()
     data = request.json
 
     msg = data["message"]
     cid = data.get("chat_id")
     mode = data.get("mode", "default")
 
-    chats = load_user_data(uid)
+    chats = load(u)
 
     if not chats:
         chats.append({
@@ -351,14 +334,11 @@ def chat():
             "messages": []
         })
 
-    chat = find_chat(chats, cid) if cid else chats[-1]
+    chat = find(chats, cid) if cid else chats[-1]
 
     chat["messages"].append({"role": "user", "content": msg})
 
-    system = {
-        "role": "system",
-        "content": MODES.get(mode, MODES["default"])
-    }
+    system = {"role": "system", "content": MODES.get(mode, MODES["default"])}
 
     convo = [system] + chat["messages"]
 
@@ -377,46 +357,39 @@ def chat():
             yield token
 
         chat["messages"].append({"role": "assistant", "content": full})
-        save_user_data(uid, chats)
+        save(u, chats)
 
     return Response(stream(), mimetype="text/plain")
 
 
 @app.route("/chats")
 def chats():
-    uid = get_user_id()
-    data = load_user_data(uid)
-
-    return jsonify([
-        {"id": c["id"], "title": c["title"]}
-        for c in data
-    ])
+    u = uid()
+    data = load(u)
+    return jsonify([{"id":c["id"], "title":c["title"]} for c in data])
 
 
 @app.route("/load/<cid>")
 def load_chat(cid):
-    uid = get_user_id()
-    data = load_user_data(uid)
-
-    chat = find_chat(data, cid)
-    return jsonify(chat["messages"] if chat else [])
+    u = uid()
+    data = load(u)
+    c = find(data, cid)
+    return jsonify(c["messages"] if c else [])
 
 
 @app.route("/delete/<cid>")
 def delete(cid):
-    uid = get_user_id()
-    data = load_user_data(uid)
-
+    u = uid()
+    data = load(u)
     data = [c for c in data if c["id"] != cid]
-    save_user_data(uid, data)
-
+    save(u, data)
     return "ok"
 
 
 @app.route("/new_chat")
 def new_chat():
-    uid = get_user_id()
-    data = load_user_data(uid)
+    u = uid()
+    data = load(u)
 
     new = {
         "id": str(uuid.uuid4()),
@@ -425,7 +398,7 @@ def new_chat():
     }
 
     data.append(new)
-    save_user_data(uid, data)
+    save(u, data)
 
     return jsonify(new)
 
