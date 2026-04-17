@@ -12,16 +12,13 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev_key")
 CHAT_DIR = "chats"
 os.makedirs(CHAT_DIR, exist_ok=True)
 
-# ---------------- MODES ----------------
-
 MODES = {
     "default": "You are a helpful assistant.",
     "study": "You explain things clearly and simply like a tutor.",
     "code": "You are an expert programmer.",
-    "debate": "You challenge the user and argue intelligently."
+    "debate": "You challenge the user intelligently."
 }
 
-# ---------------- STORAGE ----------------
 
 def uid():
     u = request.cookies.get("user_id")
@@ -52,8 +49,6 @@ def find(data, cid):
             return c
     return None
 
-
-# ---------------- UI ----------------
 
 HTML = """
 <!doctype html>
@@ -100,10 +95,6 @@ button {
     cursor: pointer;
 }
 
-.mode:hover {
-    background: #374151;
-}
-
 /* MAIN */
 #main {
     flex: 1;
@@ -123,7 +114,6 @@ button {
     overflow-y: auto;
 }
 
-/* MESSAGES */
 .msg {
     max-width: 70%;
     padding: 10px;
@@ -140,19 +130,25 @@ button {
     background: #1f2937;
 }
 
-/* INPUT BAR FIXED */
+/* ========================= */
+/* 🔥 FIXED INPUT BAR BELOW   */
+/* ========================= */
+
 #inputBar {
     display: flex;
-    align-items: center;
+    align-items: flex-end;
     gap: 10px;
-    padding: 10px;
+    padding: 12px;
     background: #111827;
 }
 
+/* TEXTAREA TAKES MOST SPACE */
 textarea {
-    flex: 1;
+    flex: 1 1 auto;
+    width: 100%;
     min-height: 44px;
-    max-height: 120px;
+    max-height: 140px;
+
     padding: 10px;
     border-radius: 10px;
     border: none;
@@ -160,16 +156,27 @@ textarea {
     color: white;
     resize: none;
     outline: none;
+
+    font-size: 14px;
+    box-sizing: border-box;
 }
 
+/* BUTTON IS FIXED SIZE */
 .sendBtn {
-    flex-shrink: 0;
+    flex: 0 0 auto;
+    width: auto;
     padding: 10px 16px;
     border-radius: 10px;
     border: none;
     background: #2563eb;
     color: white;
     cursor: pointer;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.sendBtn:hover {
+    background: #1d4ed8;
 }
 </style>
 </head>
@@ -180,10 +187,10 @@ textarea {
     <button onclick="newChat()">+ New Chat</button>
 
     <h4>Modes</h4>
-    <div class="mode" onclick="setMode('default')">Default</div>
-    <div class="mode" onclick="setMode('study')">Study</div>
-    <div class="mode" onclick="setMode('code')">Code</div>
-    <div class="mode" onclick="setMode('debate')">Debate</div>
+    <div class="mode" onclick="mode='default'">Default</div>
+    <div class="mode" onclick="mode='study'">Study</div>
+    <div class="mode" onclick="mode='code'">Code</div>
+    <div class="mode" onclick="mode='debate'">Debate</div>
 
     <h4>Chats</h4>
     <div id="list"></div>
@@ -191,6 +198,7 @@ textarea {
 
 <div id="main">
     <div id="header">Drew-GPT</div>
+
     <div id="chat"></div>
 
     <div id="inputBar">
@@ -203,10 +211,6 @@ textarea {
 let chatDiv = document.getElementById("chat");
 let activeChat = null;
 let mode = "default";
-
-function setMode(m){
-    mode = m;
-}
 
 function add(role,text){
     let d=document.createElement("div");
@@ -284,7 +288,6 @@ async function loadChats(){
 
         title.onclick=async()=>{
             activeChat=c.id;
-
             let r=await fetch("/load/"+c.id);
             let msgs=await r.json();
 
@@ -301,10 +304,6 @@ async function loadChats(){
         del.onclick=async(e)=>{
             e.stopPropagation();
             await fetch("/delete/"+c.id);
-            if(activeChat===c.id){
-                activeChat=null;
-                chatDiv.innerHTML="";
-            }
             loadChats();
         };
 
@@ -321,8 +320,6 @@ loadChats();
 </html>
 """
 
-
-# ---------------- BACKEND ----------------
 
 @app.route("/")
 def index():
@@ -366,7 +363,6 @@ def chat():
         )
 
         full = ""
-
         for c in res:
             token = c.choices[0].delta.content or ""
             full += token
