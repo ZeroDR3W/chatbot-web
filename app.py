@@ -9,32 +9,147 @@ client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 MODES = {
     "default": "You are a helpful assistant.",
-    "study": "You are a helpful tutor who explains clearly and simply.",
-    "code": "You are an expert programmer who gives clean code and explanations.",
-    "debate": "You challenge the user and argue back intelligently.",
+    "study": "You are a helpful tutor who explains things clearly and simply.",
+    "code": "You are an expert programmer who writes clean code and explains it.",
+    "debate": "You challenge the user and argue your position intelligently.",
 }
 
-HTML = """<!doctype html>
+HTML = """
+<!doctype html>
 <html>
 <head>
 <title>Drew-GPT</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
 <style>
-body {margin:0; display:flex; height:100vh; background:#0f0f0f; color:white; font-family:Arial;}
-#sidebar {width:220px; background:#111; padding:10px; overflow-y:auto;}
-#main {flex:1; display:flex; flex-direction:column;}
-#header {padding:15px; text-align:center; background:#111; border-bottom:1px solid #222;}
-#chat {flex:1; overflow-y:auto; padding:20px;}
-.msg {max-width:70%; padding:10px; margin:10px 0; border-radius:12px;}
-.user {background:#2563eb; margin-left:auto;}
-.assistant {background:#2a2a2a;}
-#inputBar {display:flex; padding:10px; background:#111;}
-textarea {flex:1; padding:10px; border:none; border-radius:8px; background:#222; color:white;}
-button {margin-left:10px; padding:10px; border:none; border-radius:8px; background:#2563eb; color:white; cursor:pointer;}
-.mode {display:block; margin:5px 0; padding:8px; background:#222; cursor:pointer;}
-.chat-item {padding:6px; cursor:pointer; border-bottom:1px solid #333;}
+body {
+    margin: 0;
+    font-family: Arial;
+    background: #0f0f0f;
+    color: white;
+    display: flex;
+    height: 100vh;
+}
+
+/* SIDEBAR */
+#sidebar {
+    width: 220px;
+    background: #111;
+    padding: 10px;
+    border-right: 1px solid #222;
+}
+
+#sidebar button {
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 10px;
+    background: #2563eb;
+    border: none;
+    color: white;
+    cursor: pointer;
+}
+
+/* MAIN */
+#main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+#header {
+    padding: 15px;
+    background: #111;
+    border-bottom: 1px solid #222;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* CHAT */
+#chat {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+}
+
+.msg {
+    max-width: 70%;
+    padding: 10px 14px;
+    margin: 10px 0;
+    border-radius: 12px;
+    white-space: pre-wrap;
+}
+
+.user {
+    background: #2563eb;
+    margin-left: auto;
+}
+
+.assistant {
+    background: #2a2a2a;
+    margin-right: auto;
+}
+
+/* INPUT */
+#inputBar {
+    display: flex;
+    padding: 10px;
+    background: #111;
+}
+
+textarea {
+    flex: 1;
+    padding: 10px;
+    border: none;
+    border-radius: 8px;
+    background: #222;
+    color: white;
+    resize: none;
+}
+
+button {
+    margin-left: 10px;
+    padding: 10px 14px;
+    border: none;
+    border-radius: 8px;
+    background: #2563eb;
+    color: white;
+    cursor: pointer;
+}
+
+/* MODE BUTTONS */
+.mode {
+    display: block;
+    padding: 8px;
+    margin: 5px 0;
+    background: #222;
+    cursor: pointer;
+    border-radius: 6px;
+}
+
+/* MOBILE */
+@media (max-width: 768px) {
+    #sidebar {
+        position: absolute;
+        left: -240px;
+        height: 100%;
+        transition: 0.3s;
+        z-index: 1000;
+    }
+
+    #sidebar.open {
+        left: 0;
+    }
+
+    .msg {
+        max-width: 90%;
+    }
+}
 </style>
 </head>
+
 <body>
 
 <div id="sidebar">
@@ -51,13 +166,19 @@ button {margin-left:10px; padding:10px; border:none; border-radius:8px; backgrou
 </div>
 
 <div id="main">
-    <div id="header">Drew-GPT</div>
+
+    <div id="header">
+        <span onclick="toggleMenu()" style="cursor:pointer;">☰</span>
+        <span>Drew-GPT</span>
+    </div>
+
     <div id="chat"></div>
 
     <div id="inputBar">
-        <textarea id="input"></textarea>
+        <textarea id="input" rows="1" placeholder="Message..."></textarea>
         <button onclick="sendMessage()">Send</button>
     </div>
+
 </div>
 
 <script>
@@ -98,14 +219,16 @@ async function sendMessage() {
     while (true) {
         const {value, done} = await reader.read();
         if (done) break;
-        let chunk = decoder.decode(value);
-        full += chunk;
+
+        full += decoder.decode(value);
         botDiv.innerHTML = marked.parse(full);
+        chatDiv.scrollTop = chatDiv.scrollHeight;
     }
 }
 
+/* ENTER TO SEND */
 document.getElementById("input").addEventListener("keydown", function(e){
-    if(e.key==="Enter" && !e.shiftKey){
+    if(e.key === "Enter" && !e.shiftKey){
         e.preventDefault();
         sendMessage();
     }
@@ -113,7 +236,11 @@ document.getElementById("input").addEventListener("keydown", function(e){
 
 function setMode(mode){
     currentMode = mode;
-    alert("Mode set to " + mode);
+    alert("Mode: " + mode);
+}
+
+function toggleMenu(){
+    document.getElementById("sidebar").classList.toggle("open");
 }
 
 async function newChat(){
@@ -135,7 +262,7 @@ async function loadChats(){
 
     chats.forEach((c,i)=>{
         let el = document.createElement("div");
-        el.className = "chat-item";
+        el.className = "mode";
         el.innerText = "Chat " + (i+1);
         el.onclick = ()=>loadChat(i);
         div.appendChild(el);
@@ -147,7 +274,7 @@ async function loadChat(i){
     let chat = await res.json();
 
     chatDiv.innerHTML = "";
-    chat.forEach(m=>addMessage(m.role, m.content));
+    chat.forEach(m => addMessage(m.role, m.content));
 }
 
 loadChats();
@@ -171,11 +298,16 @@ def chat():
     user_msg = data["message"]
     mode = data["mode"]
 
-    messages = session.get("messages", [])
+    if "messages" not in session:
+        session["messages"] = []
 
-    system = {"role":"system","content":MODES.get(mode, MODES["default"])}
+    if "saved" not in session:
+        session["saved"] = []
 
-    convo = [system] + messages + [{"role":"user","content":user_msg}]
+    messages = session["messages"]
+
+    system = {"role": "system", "content": MODES.get(mode, MODES["default"])}
+    convo = [system] + messages + [{"role": "user", "content": user_msg}]
 
     def generate():
         stream = client.chat.completions.create(
@@ -185,13 +317,14 @@ def chat():
         )
 
         full = ""
+
         for chunk in stream:
             token = chunk.choices[0].delta.content or ""
             full += token
             yield token
 
-        messages.append({"role":"user","content":user_msg})
-        messages.append({"role":"assistant","content":full})
+        messages.append({"role": "user", "content": user_msg})
+        messages.append({"role": "assistant", "content": full})
         session["messages"] = messages
 
     return Response(generate(), mimetype="text/plain")
@@ -203,7 +336,9 @@ def reset():
 
 @app.route("/save", methods=["POST"])
 def save():
-    session["saved"].append(session["messages"])
+    if "saved" not in session:
+        session["saved"] = []
+    session["saved"].append(session.get("messages", []))
     return "ok"
 
 @app.route("/chats")
