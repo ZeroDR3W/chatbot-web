@@ -9,45 +9,42 @@ app = Flask(__name__)
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev_key")
 
+MODES = {
+    "default": "You are a helpful assistant.",
+    "study": "You are a helpful tutor who explains clearly.",
+    "code": "You are an expert programmer.",
+    "debate": "You argue intelligently with the user."
+}
+
 CHAT_DIR = "chats"
 os.makedirs(CHAT_DIR, exist_ok=True)
 
 
-# ---------------- STORAGE ----------------
-
-def user_id():
-    uid = request.cookies.get("user_id")
-    if not uid:
-        uid = str(uuid.uuid4())
-    return uid
+def get_user():
+    user_id = request.cookies.get("user_id")
+    if not user_id:
+        user_id = str(uuid.uuid4())
+    return user_id
 
 
-def path(uid):
-    return os.path.join(CHAT_DIR, f"{uid}.json")
+def file_path(user_id):
+    return os.path.join(CHAT_DIR, f"{user_id}.json")
 
 
-def load(uid):
-    p = path(uid)
-    if os.path.exists(p):
-        with open(p, "r") as f:
+def load_data(user_id):
+    path = file_path(user_id)
+    if os.path.exists(path):
+        with open(path, "r") as f:
             return json.load(f)
     return []
 
 
-def save(uid, data):
-    with open(path(uid), "w") as f:
+def save_data(user_id, data):
+    with open(file_path(user_id), "w") as f:
         json.dump(data, f)
 
 
-def find_chat(chats, cid):
-    for c in chats:
-        if c["id"] == cid:
-            return c
-    return None
-
-
 # ---------------- UI ----------------
-
 HTML = """
 <!doctype html>
 <html>
@@ -57,104 +54,45 @@ HTML = """
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
 <style>
-body {
-    margin: 0;
-    display: flex;
-    height: 100vh;
-    font-family: system-ui;
-    background: #0b0f17;
-    color: white;
-}
+body {margin:0; display:flex; height:100vh; font-family:Arial; background:#0f0f0f; color:white;}
 
-/* SIDEBAR */
-#sidebar {
-    width: 260px;
-    padding: 12px;
-    background: #111827;
-    overflow-y: auto;
-}
+#sidebar {width:240px; background:#111; padding:10px; overflow-y:auto;}
 
 .chatItem {
-    padding: 10px;
-    margin: 6px 0;
-    background: #1f2937;
-    border-radius: 10px;
-    cursor: pointer;
-    display: flex;
-    justify-content: space-between;
-}
-
-.chatItem:hover {
-    background: #374151;
+    padding:8px;
+    background:#222;
+    margin:5px 0;
+    border-radius:6px;
+    cursor:pointer;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
 }
 
 .deleteBtn {
-    background: transparent;
-    border: none;
-    color: #ff5555;
-    cursor: pointer;
+    background:red;
+    border:none;
+    color:white;
+    padding:3px 6px;
+    border-radius:4px;
+    cursor:pointer;
 }
 
-/* MAIN */
-#main {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-}
+#main {flex:1; display:flex; flex-direction:column;}
 
-#header {
-    padding: 12px;
-    background: #111827;
-    font-weight: bold;
-}
+#header {padding:15px; background:#111;}
 
-#chat {
-    flex: 1;
-    padding: 20px;
-    overflow-y: auto;
-}
+#chat {flex:1; padding:20px; overflow-y:auto;}
 
-/* MSGS */
-.msg {
-    max-width: 70%;
-    padding: 10px;
-    margin: 10px 0;
-    border-radius: 12px;
-}
+.msg {max-width:70%; padding:10px; margin:10px 0; border-radius:10px;}
+.user {background:#2563eb; margin-left:auto;}
+.assistant {background:#2a2a2a;}
 
-.user {
-    background: #2563eb;
-    margin-left: auto;
-}
+#inputBar {display:flex; padding:10px; background:#111;}
 
-.assistant {
-    background: #1f2937;
-}
+textarea {flex:1; padding:10px; background:#222; color:white; border:none;}
 
-/* INPUT */
-#inputBar {
-    display: flex;
-    padding: 10px;
-    background: #111827;
-}
-
-textarea {
-    flex: 1;
-    padding: 10px;
-    border-radius: 10px;
-    border: none;
-    background: #1f2937;
-    color: white;
-}
-
-button {
-    margin-left: 10px;
-    padding: 10px;
-    background: #2563eb;
-    color: white;
-    border: none;
-    border-radius: 10px;
-}
+button {margin-left:10px; padding:10px;}
 </style>
 </head>
 
@@ -178,7 +116,6 @@ button {
 
 <script>
 let chatDiv = document.getElementById("chat");
-let activeChat = null;
 
 function add(role,text){
     let d=document.createElement("div");
@@ -191,7 +128,7 @@ function add(role,text){
 async function send(){
     let input=document.getElementById("input");
     let text=input.value.trim();
-    if(!text) return;
+    if(!text)return;
 
     input.value="";
     add("user",text);
@@ -204,10 +141,7 @@ async function send(){
     const res=await fetch("/chat",{
         method:"POST",
         headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({
-            message:text,
-            chat_id:activeChat
-        })
+        body:JSON.stringify({message:text})
     });
 
     const reader=res.body.getReader();
@@ -216,7 +150,7 @@ async function send(){
 
     while(true){
         let {value,done}=await reader.read();
-        if(done) break;
+        if(done)break;
         full+=decoder.decode(value);
         bot.innerHTML=marked.parse(full);
     }
@@ -232,10 +166,7 @@ document.getElementById("input").addEventListener("keydown",e=>{
 });
 
 async function newChat(){
-    let res=await fetch("/new_chat");
-    let data=await res.json();
-
-    activeChat=data.id;
+    await fetch("/new_chat");
     chatDiv.innerHTML="";
     loadChats();
 }
@@ -247,36 +178,27 @@ async function loadChats(){
     let list=document.getElementById("list");
     list.innerHTML="";
 
-    data.forEach(c=>{
+    data.forEach(chat=>{
         let wrap=document.createElement("div");
         wrap.className="chatItem";
 
         let title=document.createElement("div");
-        title.innerText=c.title;
+        title.innerText=chat.title;
 
         title.onclick=async()=>{
-            activeChat=c.id;
-
-            let r=await fetch("/load/"+c.id);
+            let r=await fetch("/load/"+chat.id);
             let msgs=await r.json();
-
             chatDiv.innerHTML="";
             msgs.forEach(m=>add(m.role,m.content));
         };
 
         let del=document.createElement("button");
-        del.innerText="X";
         del.className="deleteBtn";
+        del.innerText="X";
 
         del.onclick=async(e)=>{
             e.stopPropagation();
-            await fetch("/delete/"+c.id);
-
-            if(activeChat===c.id){
-                chatDiv.innerHTML="";
-                activeChat=null;
-            }
-
+            await fetch("/delete/"+chat.id);
             loadChats();
         };
 
@@ -294,7 +216,7 @@ loadChats();
 """
 
 
-# ---------------- ROUTES ----------------
+# ---------------- BACKEND ----------------
 
 @app.route("/")
 def index():
@@ -306,24 +228,22 @@ def index():
 
 @app.route("/chat", methods=["POST"])
 def chat():
-    uid = user_id()
+    user_id = get_user()
     data = request.json
     msg = data["message"]
-    cid = data.get("chat_id")
 
-    chats = load(uid)
+    chats = load_data(user_id)
 
-    if not chats:
-        new = {
+    if not chats or chats[-1].get("done"):
+        chats.append({
             "id": str(uuid.uuid4()),
             "title": msg[:20],
-            "messages": []
-        }
-        chats.append(new)
+            "messages": [],
+            "done": False
+        })
 
-    chat = find_chat(chats, cid) if cid else chats[-1]
-
-    chat["messages"].append({"role": "user", "content": msg})
+    chat = chats[-1]
+    chat["messages"].append({"role":"user","content":msg})
 
     def stream():
         res = client.chat.completions.create(
@@ -332,23 +252,23 @@ def chat():
             stream=True
         )
 
-        full = ""
+        full=""
 
         for c in res:
-            token = c.choices[0].delta.content or ""
-            full += token
+            token=c.choices[0].delta.content or ""
+            full+=token
             yield token
 
-        chat["messages"].append({"role": "assistant", "content": full})
-        save(uid, chats)
+        chat["messages"].append({"role":"assistant","content":full})
+        save_data(user_id,chats)
 
     return Response(stream(), mimetype="text/plain")
 
 
 @app.route("/chats")
 def chats():
-    uid = user_id()
-    data = load(uid)
+    user_id = get_user()
+    data = load_data(user_id)
 
     return jsonify([
         {"id":c["id"], "title":c["title"]}
@@ -357,40 +277,33 @@ def chats():
 
 
 @app.route("/load/<cid>")
-def load_chat(cid):
-    uid = user_id()
-    data = load(uid)
+def load(cid):
+    user_id = get_user()
+    data = load_data(user_id)
 
-    chat = find_chat(data, cid)
-    return jsonify(chat["messages"] if chat else [])
+    for c in data:
+        if c["id"] == cid:
+            return jsonify(c["messages"])
+
+    return jsonify([])
 
 
 @app.route("/delete/<cid>")
 def delete(cid):
-    uid = user_id()
-    data = load(uid)
+    user_id = get_user()
+    data = load_data(user_id)
 
     data = [c for c in data if c["id"] != cid]
-    save(uid, data)
 
+    save_data(user_id, data)
     return "ok"
 
 
 @app.route("/new_chat")
 def new_chat():
-    uid = user_id()
-    data = load(uid)
-
-    new = {
-        "id": str(uuid.uuid4()),
-        "title": "New chat",
-        "messages": []
-    }
-
-    data.append(new)
-    save(uid, data)
-
-    return jsonify(new)
+    user_id = get_user()
+    save_data(user_id, [])
+    return "ok"
 
 
 if __name__ == "__main__":
